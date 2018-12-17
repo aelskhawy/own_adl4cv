@@ -15,3 +15,8 @@ model = Frustum3DModel(n_points=Config.NUM_POINT,
 
 trainer = ModelTrainer(model, TRAIN_DATASET, TEST_DATASET, Config, log_interval=10)
 trainer.train(n_epochs=3)
+
+# trainer to report loss over the whole epoch
+# trainer to include evaluation epoch
+# model saving to be implemented (dict)
+#

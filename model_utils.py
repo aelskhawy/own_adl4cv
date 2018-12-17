@@ -3,7 +3,6 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 from keras.utils import to_categorical
-from torch.autograd import Variable
 
 ####### Global Constants #######
 g_type2class={'Car':0, 'Van': 1, 'Truck':2, 'Pedestrian':3,

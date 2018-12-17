@@ -221,7 +221,7 @@ class ModelTrainer:
 
         if self.global_step % self.train_control['decay_steps'] == 0:
             print('LR is set to {}'.format(lr))
-            logging.info('LR is set to {}'.format(lr))
+            #logging.info('LR is set to {}'.format(lr))
 
         for param_group in self.optimizer.param_groups:
             param_group['lr'] = lr
@@ -239,7 +239,7 @@ class ModelTrainer:
 
         if self.global_step % self.train_control['bn_decay_step'] == 0:
             print('Batch norm decay is set to {}'.format(bn_decay))
-            logging.info('Batch norm decay is set to {}'.format(bn_decay))
+            #logging.info('Batch norm decay is set to {}'.format(bn_decay))
 
         self.bn_decay = bn_decay
         self.model.update_bn_decay(self.bn_decay)
