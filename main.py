@@ -13,5 +13,5 @@ model = Frustum3DModel(n_points=Config.NUM_POINT,
                        n_channels=4,
                        n_classes=3)
 
-trainer = ModelTrainer(model, TRAIN_DATASET, TEST_DATASET, Config, log_interval=2, train_subset=160)
-trainer.train(n_epochs=50)
+trainer = ModelTrainer(model, TRAIN_DATASET, TEST_DATASET, Config, log_interval=10)
+trainer.train(n_epochs=3)

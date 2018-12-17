@@ -47,6 +47,7 @@ class Frustum3DModel(nn.Module):
         # to check if we need to change to variable here
         #self.object_point_cloud = torch.autograd.Variable(self.object_point_cloud)
 
+        #print('input to center net:', self.object_point_cloud.size())
         self.predicted_center_delta = self.center_regression_model(self.object_point_cloud, one_hot_vector)
 
         #print("Endpoints after center model: ", type(self.endpoints))

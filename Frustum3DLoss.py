@@ -52,12 +52,11 @@ class Frustum3DLoss(nn.Module):
                                            size_residual_label, endpoints['size_residuals'])
         self.losses['corner_loss'] = corner_loss
 
-#         total_loss = seg_loss + self.box_loss_weight * (center_loss +heading_class_loss + size_class_loss +
-#                                                         heading_residual_normalized_loss * 20 +
-#                                                         size_residuals_normalized_loss * 20 +
-#                                                         stage1_center_loss +
-#                                                         self.corner_loss_weight * corner_loss)
-        total_loss = seg_loss + center_loss + stage1_center_loss
+        total_loss = seg_loss + self.box_loss_weight * (center_loss +heading_class_loss + size_class_loss +
+                                                        heading_residual_normalized_loss * 20 +
+                                                        size_residuals_normalized_loss * 20 +
+                                                        stage1_center_loss +
+                                                        self.corner_loss_weight * corner_loss)
         self.losses['total_loss'] = total_loss
 
         return total_loss
@@ -75,9 +74,11 @@ class Frustum3DLoss(nn.Module):
                                mask_label.type(torch.LongTensor).to(self.device))
 
     def get_center_losses(self, center_label, predicted_center, stage1_center):
-        center_distance = Variable(torch.norm(center_label - predicted_center, p=1, dim=-1), requires_grad = True)
+        #center_distance = Variable(torch.norm(center_label - predicted_center, p=1, dim=-1), requires_grad= True)
+        center_distance = torch.norm(center_label - predicted_center, p=1, dim=-1)
         center_loss = self.huber_loss(center_distance, delta=2.0)
-        stage1_center_distance = Variable(torch.norm(center_label - stage1_center, p=1, dim=-1), requires_grad = True)
+        #stage1_center_distance = Variable(torch.norm(center_label - stage1_center, p=1, dim=-1), requires_grad= True)
+        stage1_center_distance = torch.norm(center_label - stage1_center, p=1, dim=-1)
 
         stage1_center_loss = self.huber_loss(stage1_center_distance, delta=1.0)
         return center_loss, stage1_center_loss
@@ -166,8 +167,8 @@ class Frustum3DLoss(nn.Module):
         corners_3d_gt = get_box3d_corners_helper(center_label, heading_label, size_label)
         corners_3d_gt_flip = get_box3d_corners_helper(center_label, heading_label+np.pi, size_label)
 
-        corners_dist = Variable(torch.min(torch.norm(corners_3d_predicted - corners_3d_gt, p=1, dim=-1),
-                                 torch.norm(corners_3d_predicted - corners_3d_gt_flip, p=1, dim=-1)), requires_grad = True)
+        corners_dist = torch.min(torch.norm(corners_3d_predicted - corners_3d_gt, p=1, dim=-1),
+                                 torch.norm(corners_3d_predicted - corners_3d_gt_flip, p=1, dim=-1))
 
         corner_loss = self.huber_loss(corners_dist, delta=1.0)
 

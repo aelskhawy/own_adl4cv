@@ -32,7 +32,7 @@ class RegressionBox3DModel(nn.Module):
         regressors_count = 3 + self.num_heading_bin * 2 + self.num_size_cluster * 4
         fc_layer6 = fc_block(512+self.n_classes, 512, decay=self.batch_norm_decay)
         fc_layer7 = fc_block(512, 256, decay=self.batch_norm_decay)
-        fc_layer8 = fc_block(256, regressors_count, decay=self.batch_norm_decay, activation_layer=None)
+        fc_layer8 = fc_block(256, regressors_count, batch_norm_layer=False, activation_layer=None)
         self.box_regressor = nn.Sequential(*fc_layer6, *fc_layer7, *fc_layer8)
 
     def forward(self, input_point_cloud: torch.Tensor, one_hot_vector: torch.Tensor):

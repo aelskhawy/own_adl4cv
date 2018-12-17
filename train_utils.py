@@ -1,7 +1,8 @@
 import numpy as np
 import torch
 
-get_variable_tesnor = lambda x: torch.autograd.Variable(torch.Tensor(x))
+#get_variable_tesnor = lambda x: torch.autograd.Variable(torch.Tensor(x))
+get_variable_tesnor = lambda x: torch.Tensor(x)
 
 def get_batch(dataset, idxs, start_idx, end_idx,
               num_point, num_channel,

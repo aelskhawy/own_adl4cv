@@ -20,14 +20,13 @@ class CenterRegressionModel(nn.Module):
         # center regressor
         fc_layer5 = fc_block(256+self.n_classes, 256, decay=self.batch_norm_decay)
         fc_layer6 = fc_block(256, 128, decay=self.batch_norm_decay)
-        fc_layer7 = fc_block(128, 3, decay=self.batch_norm_decay, activation_layer=None)
+        fc_layer7 = fc_block(128, 3, batch_norm_layer=False, activation_layer=None)
 
         self.center_regressor = nn.Sequential(*fc_layer5, *fc_layer6, *fc_layer7)
 
-    def forward(self, input_point_cloud, one_hot_vector):
-        #print("Center network input: ", input_point_cloud.size())
-        input_point_cloud = input_point_cloud.permute(0, 2, 1).unsqueeze(3)
-        self.object_features = self.object_features_extractor(input_point_cloud)
+    def forward(self, object_point_cloud, one_hot_vector):
+        object_point_cloud = object_point_cloud.permute(0, 2, 1).unsqueeze(3)
+        self.object_features = self.object_features_extractor(object_point_cloud)
         self.object_features = self.object_features.squeeze(3).squeeze(2)
         self.concat_object_features = torch.cat((self.object_features, one_hot_vector), dim=1)
 

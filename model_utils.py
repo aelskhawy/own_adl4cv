@@ -57,8 +57,8 @@ def get_heading_loss(heading_scores, heading_class_label):
 
 
 def gather_object_pointcloud(point_cloud, mask, m_points, device='cuda'):
-    def mask_to_indicies(mask, batch_size):
-        indices = torch.zeros((batch_size, m_points, 2), dtype=torch.int32)
+    def mask_to_indicies(mask, batch_size, n_channels):
+        indices = torch.zeros((batch_size, m_points, n_channels), dtype=torch.long)
         for i in range(batch_size):
             pos_indices = np.where(mask[i, :] > 0.5)[0]
             # skip cases when pos_indices is empty
@@ -71,48 +71,59 @@ def gather_object_pointcloud(point_cloud, mask, m_points, device='cuda'):
                                               m_points - len(pos_indices), replace=True)
                     choice = np.concatenate((np.arange(len(pos_indices)), choice))
                 np.random.shuffle(choice)
-                indices[i, :, 1] = torch.from_numpy(pos_indices[choice])
-            indices[i, :, 0] = i
-        return indices
+                indices[i, :] = torch.from_numpy(pos_indices[choice]).unsqueeze(1).repeat(1, 4)
+        return indices.to(device)
 
     batch_size = mask.size()[0]
     n_channels = point_cloud.size()[2]
 
-    indices = torch.autograd.Variable(mask_to_indicies(mask, batch_size))
-    object_point_cloud = torch.zeros((mask.size()[0], m_points, n_channels))
-    object_point_cloud = torch.autograd.Variable(object_point_cloud)
+    #indices = torch.autograd.Variable(mask_to_indicies(mask, batch_size))
+    indices = mask_to_indicies(mask, batch_size, n_channels)
 
-    for i in range(batch_size):
-        count = 0
-        for j in indices[i, :, 1]:
-            object_point_cloud[i, count, :] = point_cloud[i, j, :]
-            count += 1
+    object_point_cloud = torch.zeros((mask.size()[0], m_points, n_channels))
+    #object_point_cloud = torch.autograd.Variable(object_point_cloud)
+
+    # for i in range(batch_size):
+    #     count = 0
+    #     for j in indices[i, :, 1]:
+    #         object_point_cloud[i, count, :] = point_cloud[i, j, :]
+    #         count += 1
+
+    object_point_cloud = torch.gather(point_cloud, 1, indices)
 
     return object_point_cloud.to(device), indices
 
 
 def point_cloud_masking(point_cloud, segmentation_logits, endpoints, NUM_OBJECT_POINT=512, device='cuda'):
+    #print("inside point cloud masking")
+
+    #print("Shape of point cloud at start: ", point_cloud.size())
+    #print("Shape of seg logits at start: ", segmentation_logits.size())
     batch_size = point_cloud.size()[0]
     n_points = point_cloud.size()[1]
 
     mask = (segmentation_logits[:, :, 0] < segmentation_logits[:, :, 1]).view(batch_size, n_points, -1)
+    #print("mask shape: ", mask.size())
     mask = mask.type(torch.FloatTensor).to(device)
     mask_count = torch.sum(mask, dim=1, keepdim=True).repeat(1, 1, 3)
+    #print("mask count shape: ", mask_count.size())
 
-    point_cloud_xyz = point_cloud[:, :, 0:3]  # BxNx3
+    #point_cloud_xyz = point_cloud[:, :, 0:3]  # BxNx3
+    point_cloud_xyz = point_cloud.narrow(dim=2, start=0, length=3)
     mask_xyz_mean = torch.sum(mask.repeat(1, 1, 3) * point_cloud_xyz, dim=1, keepdim=True)  # Bx1x3
     mask = torch.squeeze(mask, dim=2)  # BxN
 
     endpoints['mask'] = mask
 
-    # avoiding division by zero when predicted number of points beloning to the object is zero
+    # avoiding division by zero when predicted number of points belonging to the object is zero
     #print(torch.max(mask_count,1))
     #print(mask_xyz_mean.size())
     mask_xyz_mean = mask_xyz_mean / torch.max(mask_count, torch.Tensor([1.0]).to(device))  # Bx1x3
 
     point_cloud_xyz_stage1 = point_cloud_xyz - mask_xyz_mean.repeat(1, n_points, 1)
 
-    point_cloud_reflection = point_cloud[:, :, 3:]
+    #point_cloud_reflection = point_cloud[:, :, 3:]
+    point_cloud_reflection = point_cloud.narrow(dim=2, start=3, length=1)
     point_cloud_stage1 = torch.cat((point_cloud_xyz_stage1, point_cloud_reflection), dim=-1)
 
     num_channels = point_cloud_stage1.size()[2]
@@ -132,8 +143,8 @@ def parse_3dregression_model_output(output, endpoints, num_heading_bin, num_size
     # followed by num_heading_bin residuals
     # followed by num_size_cluster value for size scores
     # followed by num_size_cluster value for size residuals
-    heading_scores = Variable(output[:, 3: 3 + num_heading_bin], requires_grad = True)
-    heading_residuals_normalized = Variable(output[:, 3 + num_heading_bin: 3 + 2 * num_heading_bin], requires_grad = True)
+    heading_scores = output[:, 3: 3 + num_heading_bin]
+    heading_residuals_normalized = output[:, 3 + num_heading_bin: 3 + 2 * num_heading_bin]
 
     # BxNUM_HEADING_BIN
     endpoints['heading_scores'] = heading_scores
@@ -153,12 +164,12 @@ def parse_3dregression_model_output(output, endpoints, num_heading_bin, num_size
     # This fix needs to be checked conceptually 
     #https://discuss.pytorch.org/t/why-in-place-operations-on-variable-data-has-no-effects-on-backward/14444
     # BxNUM_SIZE_CLUSTER
-    size_scores = Variable(output[:, size_scores_start:size_scores_end], requires_grad = True)
+    size_scores = output[:, size_scores_start:size_scores_end]
     #Variable(torch.ones(output.size(0),size_scores_end -size_scores_start).to('cuda'), requires_grad = True)
 
     size_scores_residuals_start = size_scores_end
     size_scores_residuals_end = size_scores_residuals_start + 3 * num_size_cluster
-    size_residuals_normalized = Variable(output[:, size_scores_residuals_start: size_scores_residuals_end], requires_grad = True)
+    size_residuals_normalized = output[:, size_scores_residuals_start: size_scores_residuals_end]
 
     # BxNUM_SIZE_CLUSTERx3
     size_residuals_normalized = size_residuals_normalized.view(-1, num_size_cluster, 3)

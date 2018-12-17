@@ -9,7 +9,6 @@ from datetime import datetime
 import pprint
 
 
-
 class ModelTrainer:
     def __init__(self, model: Frustum3DModel,
                  train_dataset: FrustumDataset,
@@ -61,7 +60,7 @@ class ModelTrainer:
         logging.info('Logging initialized')
 
         logging.info('''
-        timestamp | epoch | batches_processed | mean loss | segmentation accuracy | box IOU ground | box IOU 3d | box accuracy | seg_loss
+        timestamp | epoch | batches_processed | mean_loss | segmentation_accuracy | box_IOU_ground | box_IOU_3d | box_accuracy | seg_loss | stage1_center_loss | center_loss | heading_class_loss | heading_residual_normalized_loss | size_class_loss | size_residuals_normalized_loss | corner_loss | total_loss
         ''')
 
     def _init_optimizer(self, train_control):
@@ -115,20 +114,20 @@ class ModelTrainer:
                                    batch_sclass, batch_sres)
 
             total_loss.backward()
-            #self.loss.losses['seg_loss'].backward()
-            #self.loss.losses['size_class_loss'].backward()
-            #self.loss.losses['heading_residual_normalized_loss'].backward()
-            #self.loss.losses['size_residuals_normalized_loss'].backward()
-            #self.loss.losses['stage1_center_loss'].backward()
-            #self.loss.losses['corner_loss'].backward()
-            #self.loss.losses['center_loss'].backward()
-            
+            # self.loss.losses['seg_loss'].backward()
+            # self.loss.losses['size_class_loss'].backward()
+            # self.loss.losses['heading_residual_normalized_loss'].backward()
+            # self.loss.losses['size_residuals_normalized_loss'].backward()
+            # self.loss.losses['stage1_center_loss'].backward()
+            # self.loss.losses['corner_loss'].backward()
+            # self.loss.losses['center_loss'].backward()
+
             self.optimizer.step()
             self.exp_lr_scheduler()
             self.exp_bn_scheduler()
 
-            #print("after backward: ", type(self.endpoints))
-            #print("after backward: ", self.endpoints.keys())
+            # print("after backward: ", type(self.endpoints))
+            # print("after backward: ", self.endpoints.keys())
 
             preds_val = np.argmax(self.endpoints['mask_logits'].detach().cpu().numpy(), 2)
             correct = np.sum(preds_val == batch_label.detach().cpu().numpy())
@@ -157,12 +156,12 @@ class ModelTrainer:
 
             if (batch_idx + 1) % self.log_interval == 0:
                 seg_acc = (total_correct / float(total_seen))
-                iou_ground  = iou2ds_sum / float(self.train_batch_size * self.log_interval)
+                iou_ground = iou2ds_sum / float(self.train_batch_size * self.log_interval)
                 iou_3d = iou3ds_sum / float(self.train_batch_size * self.log_interval)
 
                 box_acc = float(iou3d_correct_cnt) / float(self.train_batch_size * self.log_interval)
 
-                self.log_values(batch_idx, loss_sum/self.log_interval, seg_acc, iou_ground, iou_3d, box_acc)
+                self.log_values(batch_idx, loss_sum / self.log_interval, seg_acc, iou_ground, iou_3d, box_acc)
 
                 total_correct = 0
                 total_seen = 0
@@ -175,20 +174,33 @@ class ModelTrainer:
 
     def log_values(self, batch_idx, mean_loss, seg_acc, iou_ground, iou_3d, box_acc):
         '''
-        epoch | batches_processed | mean loss | segmentation accuracy | box IOU(ground | box IOU 3d | box accuracy | losses
+        timestamp | epoch | batches_processed | mean_loss | segmentation_accuracy | box_IOU_ground | box_IOU_3d |
+        box_accuracy | seg_loss | stage1_center_loss | center_loss | heading_class_loss |
+        heading_residual_normalized_loss | size_class_loss | size_residuals_normalized_loss | corner_loss | total_loss
         '''
 
-        log_string = '|'
-        log_string += '%d' % self.epoch + '|'
-        log_string += '%d' % (batch_idx + 1) + '|'
-        log_string += '%f' % mean_loss + '|'
-        log_string += '%f' % seg_acc + '|'
-        log_string += '%f' % iou_ground + '|'
-        log_string += '%f' % iou_3d + '|'
-        log_string += '%f' % box_acc + '|'
-        log_string += '%f' % self.loss.losses['seg_loss']
+        log_int = lambda x, y=True: '%d' % x + ' | ' if y else '%f' % x
+        log_float = lambda x, y=True: '%f' % x + ' | ' if y else '%f' % x
 
-        logging.info(log_string+'\n')
+        log_string = ' | '
+        log_string += log_int(self.epoch)
+        log_string += log_int((batch_idx + 1))
+        log_string += log_float(mean_loss)
+        log_string += log_float(seg_acc)
+        log_string += log_float(iou_ground)
+        log_string += log_float(iou_3d)
+        log_string += log_float(box_acc)
+        log_string += log_float(self.loss.losses['seg_loss'])
+        log_string += log_float(self.loss.losses['stage1_center_loss'])
+        log_string += log_float(self.loss.losses['center_loss'])
+        log_string += log_float(self.loss.losses['heading_class_loss'])
+        log_string += log_float(self.loss.losses['heading_residual_normalized_loss'])
+        log_string += log_float(self.loss.losses['size_class_loss'])
+        log_string += log_float(self.loss.losses['size_residuals_normalized_loss'])
+        log_string += log_float(self.loss.losses['corner_loss'])
+        log_string += log_float(self.loss.losses['total_loss'], False)
+
+        logging.info(log_string + '\n')
 
     def train(self, n_epochs):
         self.model.to(self.device)

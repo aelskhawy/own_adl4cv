@@ -4,11 +4,11 @@ from torch.optim import SGD, Adam
 class Config:
     NUM_HEADING_BIN = 12
     NUM_SIZE_CLUSTER = 8
-    NUM_POINT = 2048
+    NUM_POINT = 1024
     NUM_CHANNELS = 4
     NUM_OBJECT_POINT = 512
     MOMENTUM = 0.9
-    DECAY_STEP = 200000
+    DECAY_STEP = 800000
     #DECAY_RATE = 0.7
 
     BN_INIT_DECAY = 0.5
@@ -21,12 +21,12 @@ class Config:
     train_control = {
         'optimizer': Adam,  # Adam, SGD
         'optimizer_params': {'lr': 1e-3},
-        'decay_steps': 200000,
-        'decay_rate': 0.7,
+        'decay_steps': 800000,
+        'decay_rate': 0.5,
         'lr_clip': 0.00001,
         'init_bn_decay': 0.5,
         'bn_decay_rate': 0.5,
-        'bn_decay_step': 200000.0,
+        'bn_decay_step': 800000.0,
         'bn_decay_clip': 0.99,
         'lr_scheduler_type': 'step',  # 'exp', 'step', 'plateau', 'none'
 
