@@ -29,8 +29,7 @@ class CenterRegressionModel(nn.Module):
         input_point_cloud = input_point_cloud.permute(0, 2, 1).unsqueeze(3)
         self.object_features = self.object_features_extractor(input_point_cloud)
         self.object_features = self.object_features.squeeze(3).squeeze(2)
-        self.concat_object_features = torch.cat(
-            (self.object_features.view(-1, 256), one_hot_vector), dim=1)
+        self.concat_object_features = torch.cat((self.object_features, one_hot_vector), dim=1)
 
         self.predicted_center = self.center_regressor(self.concat_object_features)
 

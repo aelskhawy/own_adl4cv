@@ -106,7 +106,9 @@ def point_cloud_masking(point_cloud, segmentation_logits, endpoints, NUM_OBJECT_
     endpoints['mask'] = mask
 
     # avoiding division by zero when predicted number of points beloning to the object is zero
-    mask_xyz_mean = mask_xyz_mean / torch.max(mask_count, 1)  # Bx1x3
+    #print(torch.max(mask_count,1))
+    #print(mask_xyz_mean.size())
+    mask_xyz_mean = mask_xyz_mean / torch.max(mask_count, torch.Tensor([1.0]).to(device))  # Bx1x3
 
     point_cloud_xyz_stage1 = point_cloud_xyz - mask_xyz_mean.repeat(1, n_points, 1)
 
@@ -133,11 +135,14 @@ def parse_3dregression_model_output(output, endpoints, num_heading_bin, num_size
     heading_scores = Variable(output[:, 3: 3 + num_heading_bin], requires_grad = True)
     heading_residuals_normalized = Variable(output[:, 3 + num_heading_bin: 3 + 2 * num_heading_bin], requires_grad = True)
 
+    # BxNUM_HEADING_BIN
     endpoints['heading_scores'] = heading_scores
 
+    # BxNUM_HEADING_BIN
     # normalized residuals (-1 to 1)
     endpoints['heading_residuals_normalized'] = heading_residuals_normalized
-
+    
+    # BxNUM_HEADING_BIN
     #De-normalize the heading residuals
     endpoints['heading_residuals'] = heading_residuals_normalized * (np.pi/num_heading_bin)
 
@@ -147,6 +152,7 @@ def parse_3dregression_model_output(output, endpoints, num_heading_bin, num_size
     # the size_scores in a Variable and added requires_grad = True
     # This fix needs to be checked conceptually 
     #https://discuss.pytorch.org/t/why-in-place-operations-on-variable-data-has-no-effects-on-backward/14444
+    # BxNUM_SIZE_CLUSTER
     size_scores = Variable(output[:, size_scores_start:size_scores_end], requires_grad = True)
     #Variable(torch.ones(output.size(0),size_scores_end -size_scores_start).to('cuda'), requires_grad = True)
 
@@ -154,6 +160,7 @@ def parse_3dregression_model_output(output, endpoints, num_heading_bin, num_size
     size_scores_residuals_end = size_scores_residuals_start + 3 * num_size_cluster
     size_residuals_normalized = Variable(output[:, size_scores_residuals_start: size_scores_residuals_end], requires_grad = True)
 
+    # BxNUM_SIZE_CLUSTERx3
     size_residuals_normalized = size_residuals_normalized.view(-1, num_size_cluster, 3)
     endpoints['size_scores'] = size_scores
     endpoints['size_residuals_normalized'] = size_residuals_normalized
@@ -185,7 +192,7 @@ def get_box3d_corners(center, heading_resiudals, size_residuals, num_heading_bin
         heading_residuals : (B, NH)
         size_residuals    : (B, NS,3)
         num_heading_bin : scalar
-        mean_size_arr  : (NS,)
+        mean_size_arr  : (NS, 3)
     outputs:
         box3d_corners : (B, NH, NS, 8, 3)
     '''
@@ -198,6 +205,7 @@ def get_box3d_corners(center, heading_resiudals, size_residuals, num_heading_bin
     headings = heading_resiudals + heading_bin_centers.unsqueeze(0)
 
     # (B, NS, 3) # check his code, he says B,NS,1 but it can't be
+    # to check if needed in gradients or not 
     mean_sizes = mean_size_arr.unsqueeze(0) + size_residuals
 
     #note size_residuals added twice, once in mean_sizes and one explicit
@@ -208,7 +216,7 @@ def get_box3d_corners(center, heading_resiudals, size_residuals, num_heading_bin
     sizes = sizes.unsqueeze(1).repeat(1, num_heading_bin, 1, 1)
 
     # (B, NH, NS)
-    headings = headings.unsqueeze(-1).repeat(1, 1, num_size_cluster)
+    headings = headings.unsqueeze(2).repeat(1, 1, num_size_cluster)
 
     # (B, NH, NS, 3)
     centers = center.unsqueeze(1).unsqueeze(1).repeat(1, num_heading_bin, num_size_cluster, 1)
@@ -231,8 +239,10 @@ def get_box3d_corners_helper(centers_labels, headings_labels, sizes_labels, devi
    y_corners = torch.cat((h/2,h/2,h/2,h/2,-h/2,-h/2,-h/2,-h/2), dim=1) # (N,8)
    z_corners = torch.cat((w/2,-w/2,-w/2,w/2,w/2,-w/2,-w/2,w/2), dim=1) # (N,8)
    corners = torch.cat((x_corners.unsqueeze(1), y_corners.unsqueeze(1), z_corners.unsqueeze(1)), dim=1) # (N,3,8)
-
+   
+   # (N,) 
    c = torch.cos(headings_labels)
+   # (N,)
    s = torch.sin(headings_labels)
 
    ones = torch.ones([N], dtype=torch.float32).to(device)
@@ -243,7 +253,7 @@ def get_box3d_corners_helper(centers_labels, headings_labels, sizes_labels, devi
    R = torch.cat([row1.unsqueeze(1), row2.unsqueeze(1), row3.unsqueeze(1)], dim =1 ) # Nx3x3
 
    corners_3d = torch.matmul(R, corners) # (N,3,8)
-   corners_3d += centers_labels.unsqueeze(2).repeat(1, 1, 8) # (N,3,8)
+   corners_3d = corners_3d + centers_labels.unsqueeze(2).repeat(1, 1, 8) # (N,3,8)
    corners_3d = torch.transpose(corners_3d, dim0=1, dim1=2) # (N,8,3)
 
    return corners_3d

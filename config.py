@@ -1,4 +1,4 @@
-from torch.optim import SGD
+from torch.optim import SGD, Adam
 
 # Config
 class Config:
@@ -19,7 +19,7 @@ class Config:
     BATCH_SIZE = 32
 
     train_control = {
-        'optimizer': SGD,  # Adam, SGD
+        'optimizer': Adam,  # Adam, SGD
         'optimizer_params': {'lr': 1e-3},
         'decay_steps': 200000,
         'decay_rate': 0.7,

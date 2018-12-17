@@ -114,8 +114,8 @@ class ModelTrainer:
                                    batch_hclass, batch_hres,
                                    batch_sclass, batch_sres)
 
-            #total_loss.backward()
-            self.loss.losses['seg_loss'].backward()
+            total_loss.backward()
+            #self.loss.losses['seg_loss'].backward()
             #self.loss.losses['size_class_loss'].backward()
             #self.loss.losses['heading_residual_normalized_loss'].backward()
             #self.loss.losses['size_residuals_normalized_loss'].backward()

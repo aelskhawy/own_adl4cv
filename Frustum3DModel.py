@@ -53,7 +53,7 @@ class Frustum3DModel(nn.Module):
 
         self.endpoints['stage1_center'] = self.predicted_center_delta + self.mask_mean_xyz
 
-        self.object_point_cloud[:, :, 0:3] -= self.predicted_center_delta.view(-1, 1, 3)
+        self.object_point_cloud[:, :, 0:3] =self.object_point_cloud[:, :, 0:3] - self.predicted_center_delta.unsqueeze(1)
 
         self.boxmodel_output = self.regression_box3d_model(self.object_point_cloud, one_hot_vector)
         #print("Endpoints after box model: ", type(self.endpoints))

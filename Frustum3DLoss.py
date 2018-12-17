@@ -52,11 +52,12 @@ class Frustum3DLoss(nn.Module):
                                            size_residual_label, endpoints['size_residuals'])
         self.losses['corner_loss'] = corner_loss
 
-        total_loss = seg_loss + self.box_loss_weight * (center_loss + heading_class_loss + size_class_loss +
-                                                        heading_residual_normalized_loss * 20 +
-                                                        size_residuals_normalized_loss * 20 +
-                                                        stage1_center_loss +
-                                                        self.corner_loss_weight * corner_loss)
+#         total_loss = seg_loss + self.box_loss_weight * (center_loss +heading_class_loss + size_class_loss +
+#                                                         heading_residual_normalized_loss * 20 +
+#                                                         size_residuals_normalized_loss * 20 +
+#                                                         stage1_center_loss +
+#                                                         self.corner_loss_weight * corner_loss)
+        total_loss = seg_loss + center_loss + stage1_center_loss
         self.losses['total_loss'] = total_loss
 
         return total_loss
