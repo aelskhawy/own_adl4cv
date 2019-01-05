@@ -17,6 +17,7 @@ class Config:
     BN_DECAY_CLIP = 0.99
 
     BATCH_SIZE = 32
+    NUM_CLASSES = 2  # segmentation has 2 classes
 
     train_control = {
         'optimizer': Adam,  # Adam, SGD

@@ -24,6 +24,7 @@ class ModelTrainer:
 
         self.config = config
         self.train_batch_size = config.BATCH_SIZE
+        self.val_batch_size = config.BATCH_SIZE
 
         self.device = device
         self.loss_func = loss_func
@@ -161,7 +162,7 @@ class ModelTrainer:
 
                 box_acc = float(iou3d_correct_cnt) / float(self.train_batch_size * self.log_interval)
 
-                self.log_values(batch_idx, loss_sum / self.log_interval, seg_acc, iou_ground, iou_3d, box_acc)
+                self.log_values(batch_idx, loss_sum / self.log_interval, seg_acc, iou_ground, iou_3d, box_acc, 'Train')
 
                 total_correct = 0
                 total_seen = 0
@@ -170,9 +171,80 @@ class ModelTrainer:
                 iou3ds_sum = 0
                 iou3d_correct_cnt = 0
 
-        self.epoch += 1
 
-    def log_values(self, batch_idx, mean_loss, seg_acc, iou_ground, iou_3d, box_acc):
+    def eval_epoch(self):
+        self.model.eval()
+        test_idxs = np.arange(0, len(self.valid_dataset))
+        num_batches = len(self.valid_dataset) / self.val_batch_size
+
+        # To collect statistics
+        total_correct = 0
+        total_seen = 0
+        loss_sum = 0
+        total_seen_class = [0 for _ in range(self.config.NUM_CLASSES)]
+        total_correct_class = [0 for _ in range(self.config.NUM_CLASSES)]
+        iou2ds_sum = 0
+        iou3ds_sum = 0
+        iou3d_correct_cnt = 0
+
+        # Simple evaluation with batches
+        for batch_idx in range(num_batches):
+            start_idx = batch_idx * self.val_batch_size
+            end_idx = (batch_idx + 1) * self.val_batch_size
+
+            batch_data, batch_label, batch_center, \
+            batch_hclass, batch_hres, \
+            batch_sclass, batch_sres, \
+            batch_rot_angle, batch_one_hot_vec = \
+                tuple(get_batch(self.valid_dataset, test_idxs, start_idx, end_idx,
+                          self.config.NUM_POINT, self.config.NUM_CHANNELS))
+
+            self.endpoints = self.model(batch_data, batch_one_hot_vec)
+            val_loss = self.loss(batch_label,
+                                   batch_center,
+                                   batch_hclass, batch_hres,
+                                   batch_sclass, batch_sres)
+
+            preds_val = np.argmax(self.endpoints['mask_logits'].detach().cpu().numpy(), 2)
+            correct = np.sum(preds_val == batch_label.detach().cpu().numpy())
+            total_correct += correct
+            total_seen += (self.val_batch_size * self.config.NUM_POINT)
+            loss_sum += val_loss
+
+            iou2ds, iou3ds = compute_box3d_iou(self.endpoints['center'].detach().cpu().numpy(),
+                                               self.endpoints['heading_scores'].detach().cpu().numpy(),
+                                               self.endpoints['heading_residuals'].detach().cpu().numpy(),
+                                               self.endpoints['size_scores'].detach().cpu().numpy(),
+                                               self.endpoints['size_residuals'].detach().cpu().numpy(),
+                                               batch_center.detach().cpu().numpy(),
+                                               batch_hclass.detach().cpu().numpy(),
+                                               batch_hres.detach().cpu().numpy(),
+                                               batch_sclass.detach().cpu().numpy(),
+                                               batch_sres.detach().cpu().numpy())
+            self.endpoints['iou2ds'] = iou2ds
+            self.endpoints['iou3ds'] = iou3ds
+
+            iou2ds_sum += np.sum(self.endpoints['iou2ds'])
+            iou3ds_sum += np.sum(self.endpoints['iou3ds'])
+            iou3d_correct_cnt += np.sum(self.endpoints['iou3ds'] >= 0.7)
+
+            for l in range(self.config.NUM_CLASSES):
+                total_seen_class[l] += np.sum(batch_label == l)
+                total_correct_class[l] += (np.sum((preds_val == l) & (batch_label == l)))
+            iou2ds_sum += np.sum(iou2ds)
+            iou3ds_sum += np.sum(iou3ds)
+            iou3d_correct_cnt += np.sum(iou3ds >= 0.7)
+
+        seg_acc = (total_correct / float(total_seen))
+        iou_ground = iou2ds_sum / float(self.val_batch_size * num_batches)
+        iou_3d = iou3ds_sum / float(self.val_batch_size * num_batches)
+
+        box_acc = float(iou3d_correct_cnt) / float(self.train_batch_size * self.log_interval)
+
+        self.log_values(batch_idx, loss_sum / float(num_batches), seg_acc, iou_ground, iou_3d, box_acc, 'Val')
+
+
+    def log_values(self, batch_idx, mean_loss, seg_acc, iou_ground, iou_3d, box_acc, flag = 'Train'):
         '''
         timestamp | epoch | batches_processed | mean_loss | segmentation_accuracy | box_IOU_ground | box_IOU_3d |
         box_accuracy | seg_loss | stage1_center_loss | center_loss | heading_class_loss |
@@ -181,6 +253,7 @@ class ModelTrainer:
 
         log_int = lambda x, y=True: '%d' % x + ' | ' if y else '%f' % x
         log_float = lambda x, y=True: '%f' % x + ' | ' if y else '%f' % x
+        log_str = lambda  x, y=True: x + ' | ' if y else x
 
         log_string = ' | '
         log_string += log_int(self.epoch)
@@ -198,7 +271,8 @@ class ModelTrainer:
         log_string += log_float(self.loss.losses['size_class_loss'])
         log_string += log_float(self.loss.losses['size_residuals_normalized_loss'])
         log_string += log_float(self.loss.losses['corner_loss'])
-        log_string += log_float(self.loss.losses['total_loss'], False)
+        log_string += log_float(self.loss.losses['total_loss'])
+        log_string += log_str(flag, False)
 
         logging.info(log_string + '\n')
 
@@ -208,6 +282,8 @@ class ModelTrainer:
 
         for epoch in range(n_epochs):
             self.train_epoch()
+            self.eval_epoch()
+            self.epoch += 1
 
     def exp_lr_scheduler(self, staircase=True):
         """Decay learning rate by a factor """
