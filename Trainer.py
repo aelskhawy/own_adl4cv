@@ -233,14 +233,11 @@ class ModelTrainer:
             for l in range(self.config.NUM_CLASSES):
                total_seen_class[l] += np.sum(batch_label.detach().cpu().numpy() == l)
                total_correct_class[l] += (np.sum((preds_val == l) & (batch_label.detach().cpu().numpy() == l)))
-            iou2ds_sum += np.sum(iou2ds)
-            iou3ds_sum += np.sum(iou3ds)
-            iou3d_correct_cnt += np.sum(iou3ds >= 0.7)
         seg_acc = (total_correct / float(total_seen))
         iou_ground = iou2ds_sum / float(self.val_batch_size * num_batches)
         iou_3d = iou3ds_sum / float(self.val_batch_size * num_batches)
 
-        box_acc = float(iou3d_correct_cnt) / float(self.train_batch_size * self.log_interval)
+        box_acc = float(iou3d_correct_cnt) / float(self.val_batch_size * num_batches)
 
         self.log_values(batch_idx, loss_sum / float(num_batches), seg_acc, iou_ground, iou_3d, box_acc, 'Val')
 
