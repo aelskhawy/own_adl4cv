@@ -277,3 +277,12 @@ def save_checkpoint(save_file_path, model, epoch, optimizer, loss):
             'loss': loss
         }, save_file_path)
     return True
+
+
+def load_checkpoint(file_path, model, optimizer, device='cuda'):
+    checkpoint = torch.load(file_path)
+    start_epoch = checkpoint['epoch']
+    loss = checkpoint['loss']
+    model.load_state_dict(checkpoint['model_state_dict'])
+    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    return model.to(device), optimizer, start_epoch, loss

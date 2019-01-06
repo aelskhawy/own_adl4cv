@@ -3,13 +3,11 @@ from Frustum3DModel import Frustum3DModel
 from provider import FrustumDataset, compute_box3d_iou
 from Frustum3DLoss import Frustum3DLoss
 from torch.optim.lr_scheduler import StepLR, ExponentialLR, ReduceLROnPlateau
-from model_utils import save_checkpoint
+from model_utils import save_checkpoint, load_checkpoint
 from train_utils import get_batch
 import logging
 from datetime import datetime
 import torch
-import pprint
-
 
 class ModelTrainer:
     def __init__(self, model: Frustum3DModel,
@@ -292,6 +290,19 @@ class ModelTrainer:
             self.train_epoch()
             self.eval_epoch()
             self.epoch += 1
+
+    def resume_training(self, n_epochs, model_path='./models/best_model.pth'):
+        self.model, self.optimizer, self.epoch, self.best_val_loss = load_checkpoint(
+            model_path,
+            self.model,
+            self.optimizer)
+
+        # to verify and store optimizer parameters instead of re-init
+        self._init_optimizer(self.train_control)
+        print("Loaded model and resuming training...")
+
+        self.train(n_epochs)
+
 
     def exp_lr_scheduler(self, staircase=True):
         """Decay learning rate by a factor """
