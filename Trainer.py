@@ -3,9 +3,11 @@ from Frustum3DModel import Frustum3DModel
 from provider import FrustumDataset, compute_box3d_iou
 from Frustum3DLoss import Frustum3DLoss
 from torch.optim.lr_scheduler import StepLR, ExponentialLR, ReduceLROnPlateau
+from model_utils import save_checkpoint
 from train_utils import get_batch
 import logging
 from datetime import datetime
+import torch
 import pprint
 
 
@@ -49,6 +51,7 @@ class ModelTrainer:
 
         self._reset_histories()
         self.best_model = None
+        self.best_val_loss = 100000
         self.endpoints = self.model.endpoints
 
         handlers = [logging.FileHandler(
@@ -61,7 +64,7 @@ class ModelTrainer:
         logging.info('Logging initialized')
 
         logging.info('''
-        timestamp | epoch | batches_processed | mean_loss | segmentation_accuracy | box_IOU_ground | box_IOU_3d | box_accuracy | seg_loss | stage1_center_loss | center_loss | heading_class_loss | heading_residual_normalized_loss | size_class_loss | size_residuals_normalized_loss | corner_loss | total_loss
+        timestamp | epoch | batches_processed | mean_loss | segmentation_accuracy | box_IOU_ground | box_IOU_3d | box_accuracy | seg_loss | stage1_center_loss | center_loss | heading_class_loss | heading_residual_normalized_loss | size_class_loss | size_residuals_normalized_loss | corner_loss | total_loss | flag
         ''')
 
     def _init_optimizer(self, train_control):
@@ -175,7 +178,7 @@ class ModelTrainer:
     def eval_epoch(self):
         self.model.eval()
         test_idxs = np.arange(0, len(self.valid_dataset))
-        num_batches = len(self.valid_dataset) / self.val_batch_size
+        num_batches = int(len(self.valid_dataset) / self.val_batch_size)
 
         # To collect statistics
         total_correct = 0
@@ -199,11 +202,12 @@ class ModelTrainer:
                 tuple(get_batch(self.valid_dataset, test_idxs, start_idx, end_idx,
                           self.config.NUM_POINT, self.config.NUM_CHANNELS))
 
-            self.endpoints = self.model(batch_data, batch_one_hot_vec)
-            val_loss = self.loss(batch_label,
-                                   batch_center,
-                                   batch_hclass, batch_hres,
-                                   batch_sclass, batch_sres)
+            with torch.no_grad():
+                self.endpoints = self.model(batch_data, batch_one_hot_vec)
+                val_loss = self.loss(batch_label,
+                                       batch_center,
+                                       batch_hclass, batch_hres,
+                                       batch_sclass, batch_sres)
 
             preds_val = np.argmax(self.endpoints['mask_logits'].detach().cpu().numpy(), 2)
             correct = np.sum(preds_val == batch_label.detach().cpu().numpy())
@@ -229,12 +233,11 @@ class ModelTrainer:
             iou3d_correct_cnt += np.sum(self.endpoints['iou3ds'] >= 0.7)
 
             for l in range(self.config.NUM_CLASSES):
-                total_seen_class[l] += np.sum(batch_label == l)
-                total_correct_class[l] += (np.sum((preds_val == l) & (batch_label == l)))
+               total_seen_class[l] += np.sum(batch_label.detach().cpu().numpy() == l)
+               total_correct_class[l] += (np.sum((preds_val == l) & (batch_label.detach().cpu().numpy() == l)))
             iou2ds_sum += np.sum(iou2ds)
             iou3ds_sum += np.sum(iou3ds)
             iou3d_correct_cnt += np.sum(iou3ds >= 0.7)
-
         seg_acc = (total_correct / float(total_seen))
         iou_ground = iou2ds_sum / float(self.val_batch_size * num_batches)
         iou_3d = iou3ds_sum / float(self.val_batch_size * num_batches)
@@ -242,6 +245,11 @@ class ModelTrainer:
         box_acc = float(iou3d_correct_cnt) / float(self.train_batch_size * self.log_interval)
 
         self.log_values(batch_idx, loss_sum / float(num_batches), seg_acc, iou_ground, iou_3d, box_acc, 'Val')
+
+        if self.best_val_loss > (loss_sum / float(num_batches)):
+            self.best_val_loss = (loss_sum / float(num_batches))
+            self.best_model = self.model
+            save_checkpoint('./models/best_model.pth', self.model, self.epoch, self.optimizer, self.best_val_loss)
 
 
     def log_values(self, batch_idx, mean_loss, seg_acc, iou_ground, iou_3d, box_acc, flag = 'Train'):

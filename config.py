@@ -16,7 +16,7 @@ class Config:
     BN_DECAY_STEP = float(DECAY_STEP)
     BN_DECAY_CLIP = 0.99
 
-    BATCH_SIZE = 32
+    BATCH_SIZE = 64
     NUM_CLASSES = 2  # segmentation has 2 classes
 
     train_control = {

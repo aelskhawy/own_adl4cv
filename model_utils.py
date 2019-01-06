@@ -267,3 +267,13 @@ def get_box3d_corners_helper(centers_labels, headings_labels, sizes_labels, devi
    corners_3d = torch.transpose(corners_3d, dim0=1, dim1=2) # (N,8,3)
 
    return corners_3d
+
+
+def save_checkpoint(save_file_path, model, epoch, optimizer, loss):
+    torch.save({
+            'epoch': epoch,
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'loss': loss
+        }, save_file_path)
+    return True
