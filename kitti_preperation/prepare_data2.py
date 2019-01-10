@@ -148,22 +148,49 @@ def random_shift_box2d(box2d, shift_ratio=0.1):
     return np.array([cx2-w2/2.0, cy2-h2/2.0, cx2+w2/2.0, cy2+h2/2.0])
 
 
-# def segmentation_mask_selection(img_index=None):
-#     ''' Reads the mask file and take a decision what to select and what to
-#         ignore from the file
-#     '''
-#     if img_index == None:
-#         raise AssertionError("{Please provide image index")
-#
-#     mask_path = os.path.join(ROOT_DIR, 'masks/mask_arrays/masks_' + str(img_index).zfill(6))
-#     with open(mask_path, 'rb') as f:
-#         masks_selected = pickle.load(f)
-#         labels_selected = pickle.load(f)
-#         predicted_boxes_selected = pickle.load(f)
-#         confidence_scores_selected = pickle.load(f)
-#
-#
-#     return mask_list
+def segmentation_mask_selection(objects = None, img_index=None):
+    ''' Reads the mask file and take a decision what to select and what to
+        ignore from the file
+    '''
+    if img_index == None:
+        raise AssertionError("{Please provide image index")
+
+    type_dict = {'van': 'car', 'truck':'car', 'person':'pedestrian'}
+    mask_path = os.path.join(ROOT_DIR, 'dataset/KITTI/object/training/masks/mask_arrays/masks_' + str(img_index).zfill(6))
+    with open(mask_path, 'rb') as f:
+        predicted_masks = pickle.load(f)
+        predicted_labels = pickle.load(f)
+        #predicted_boxes_selected = pickle.load(f)
+        #confidence_scores_selected = pickle.load(f)
+    mask_list = []
+    for obj_idx in range(len(objects)):
+        # k x img_w x img_h
+        obj_masks = predicted_masks[obj_idx]
+        obj_labels = predicted_labels[obj_idx]
+
+        #map object names to the classes we have
+        obj_labels = [type_dict[i.lower()] if i.lower() in type_dict.keys() else i.lower() for i in obj_labels]
+        true_obj_class = (objects[obj_idx].type).lower()
+
+        if (true_obj_class == 'cyclist') or (len(obj_labels) == 0) or (true_obj_class not in obj_labels):
+            #if cyclist or no mask for the object, or all masks are wrong classes, then append empty array
+            mask_list.append(np.asarray([]))
+        elif (len(obj_labels) == 1)  and (true_obj_class == obj_labels[0]):
+            # one mask and has the correct class
+            mask_list.append(obj_masks[0])
+        elif (len(obj_labels) > 1 ) and (obj_labels.count(true_obj_class) == 1):
+            # more than one mask, but only one mask has the correct class
+            mask_list.append(obj_masks[obj_labels.index(true_obj_class)])
+        else:
+            # more than one mask, more than one true class, so we choose the bigger mask
+            mask_sum = np.sum(obj_masks, axis=(1,2)) # shape: len(obj_masks)
+
+            #print("mask sum",mask_sum)
+            #print("argmax",np.argmax(mask_sum))
+            mask_list.append(obj_masks[np.argmax(mask_sum)])
+
+
+    return mask_list
 
 
 def extract_frustum_data(idx_filename, split, output_filename, viz=False,
@@ -201,12 +228,17 @@ def extract_frustum_data(idx_filename, split, output_filename, viz=False,
 
     pos_cnt = 0
     all_cnt = 0
+
+    obj_box_count = 0
+    obj_mask_count = 0
+
     for data_idx in data_idx_list:
-        print('------------- ', data_idx)
+        if data_idx % 500 in range(1,10):
+            print('------------- ', data_idx)
         calib = dataset.get_calibration(data_idx) # 3 by 4 matrix
         objects = dataset.get_label_objects(data_idx)
         pc_velo = dataset.get_lidar(data_idx)
-        #print(pc_velo.shape)
+
         pc_rect = np.zeros_like(pc_velo)
         pc_rect[:,0:3] = calib.project_velo_to_rect(pc_velo[:,0:3])
         pc_rect[:,3] = pc_velo[:,3]
@@ -216,15 +248,15 @@ def extract_frustum_data(idx_filename, split, output_filename, viz=False,
             calib, 0, 0, img_width, img_height, True)
 
         #we need to read the list of masks given the image index
-        mask_path = os.path.join(ROOT_DIR,'dataset/KITTI/object/training/masks/mask_arrays/masks_' + str(data_idx).zfill(6))
-        with open(mask_path, 'rb') as f:
-            mask_arrays = pickle.load(f)
-        mask_list = mask_arrays
+        #mask_path = os.path.join(ROOT_DIR,'dataset/KITTI/object/training/masks/mask_arrays/masks_' + str(data_idx).zfill(6))
+        mask_list = segmentation_mask_selection(objects, img_index=data_idx )
+        assert len(mask_list) == len(objects)
+
         for obj_idx in range(len(objects)):
             if objects[obj_idx].type not in type_whitelist :continue
 
             # 2D BOX: Get pts rect backprojected
-            # mask 2d is a list of tupels that contains points the belongs to the mask
+            # mask 2d is a list of arrays that contains points the belongs to the mask
             mask2d = mask_list[obj_idx]
 
             #mask2d = objects[obj_idx].mask2d
@@ -289,6 +321,8 @@ def extract_frustum_data(idx_filename, split, output_filename, viz=False,
                     frustum_angle = -1 * np.arctan2(box2d_center_rect[0,2],
                         box2d_center_rect[0,0])
 
+                    obj_box_count += 1
+
                 else:
                     box_mask_flag = True
                     # pc in mask fov
@@ -307,6 +341,7 @@ def extract_frustum_data(idx_filename, split, output_filename, viz=False,
 
                     frustum_angle = -1 * np.arctan2(mask2d_center_rect[0,2],
                         mask2d_center_rect[0,0])
+                    obj_mask_count +=1
 
 
                 # 3D BOX: Get pts velo in 3d box
@@ -341,6 +376,8 @@ def extract_frustum_data(idx_filename, split, output_filename, viz=False,
                     # We used the mask instead of box, hence we need no augmentation
                     continue
         
+    print("Obj_box_count {} ".format(obj_box_count/augmentX))
+    print("Obj_mask_count {} ".format(obj_mask_count ))
     print('Average pos ratio: %f' % (pos_cnt/float(all_cnt)))
     print('Average npoints: %f' % (float(all_cnt)/len(id_list)))
     
