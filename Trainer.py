@@ -45,6 +45,7 @@ class ModelTrainer:
         self.epoch = 0
         self.global_step = 0
         self.train_control = config.train_control
+        self.current_lr = config.train_control['optimizer_params']['lr']
         self.bn_decay = config.train_control['init_bn_decay']
 
         self._reset_histories()
@@ -125,8 +126,6 @@ class ModelTrainer:
             # self.loss.losses['center_loss'].backward()
 
             self.optimizer.step()
-            self.exp_lr_scheduler()
-            self.exp_bn_scheduler()
 
             # print("after backward: ", type(self.endpoints))
             # print("after backward: ", self.endpoints.keys())
@@ -284,6 +283,8 @@ class ModelTrainer:
         for epoch in range(n_epochs):
             self.train_epoch()
             self.eval_epoch()
+            self.exp_lr_scheduler()
+            self.exp_bn_scheduler()
             self.epoch += 1
 
     def resume_training(self, n_epochs, model_path='./models/best_model.pth'):
@@ -301,35 +302,40 @@ class ModelTrainer:
 
     def exp_lr_scheduler(self, staircase=True):
         """Decay learning rate by a factor """
+
         if staircase:
             lr = self.train_control['optimizer_params']['lr'] * self.train_control['decay_rate'] ** (
-                    self.global_step // self.train_control['decay_steps'])
+                (self.global_step * self.config.BATCH_SIZE) // self.train_control['decay_steps'])
         else:
             lr = self.train_control['optimizer_params']['lr'] * self.train_control['decay_rate'] ** (
-                    self.global_step / self.train_control['decay_steps'])
+                    (self.global_step * self.config.BATCH_SIZE) / self.train_control['decay_steps'])
         lr = max(lr, self.train_control['lr_clip'])
 
-        if self.global_step % self.train_control['decay_steps'] == 0:
+        if self.global_step * self.config.BATCH_SIZE % self.train_control['decay_steps'] == 0:
             print('LR is set to {}'.format(lr))
-            #logging.info('LR is set to {}'.format(lr))
+            self.current_lr = lr
+            for param_group in self.optimizer.param_groups:
+                param_group['lr'] = lr
 
-        for param_group in self.optimizer.param_groups:
-            param_group['lr'] = lr
+        print("Current Learning Rate is: ", self.current_lr)
+
 
     def exp_bn_scheduler(self, staircase=True):
         """Decay batch norm by a factor """
         if staircase:
             bn_decay = self.train_control['init_bn_decay'] * self.train_control['bn_decay_rate'] ** (
-                    self.global_step // self.train_control['bn_decay_step'])
+                (self.global_step * self.config.BATCH_SIZE) // self.train_control['bn_decay_step'])
         else:
             bn_decay = self.train_control['init_bn_decay'] * self.train_control['bn_decay_rate'] ** (
-                    self.global_step / self.train_control['bn_decay_step'])
+                    (self.global_step * self.config.BATCH_SIZE) / self.train_control['bn_decay_step'])
 
         bn_decay = min(1 - bn_decay, self.train_control['bn_decay_clip'])
 
-        if self.global_step % self.train_control['bn_decay_step'] == 0:
+        if self.global_step * self.config.BATCH_SIZE % self.train_control['bn_decay_step'] == 0:
             print('Batch norm decay is set to {}'.format(bn_decay))
-            #logging.info('Batch norm decay is set to {}'.format(bn_decay))
+            self.bn_decay = bn_decay
+            self.model.update_bn_decay(self.bn_decay)
 
-        self.bn_decay = bn_decay
-        self.model.update_bn_decay(self.bn_decay)
+        print("Current Batch norm decay is: ", self.bn_decay)
+
+
