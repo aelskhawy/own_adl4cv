@@ -154,8 +154,6 @@ class ModelTrainer:
             iou3ds_sum += np.sum(self.endpoints['iou3ds'])
             iou3d_correct_cnt += np.sum(self.endpoints['iou3ds'] >= 0.7)
 
-            self.global_step += 1
-
             if (batch_idx + 1) % self.log_interval == 0:
                 seg_acc = (total_correct / float(total_seen))
                 iou_ground = iou2ds_sum / float(self.train_batch_size * self.log_interval)
@@ -176,7 +174,7 @@ class ModelTrainer:
     def eval_epoch(self):
         self.model.eval()
         test_idxs = np.arange(0, len(self.valid_dataset))
-        num_batches = int(len(self.valid_dataset) / self.val_batch_size)
+        num_batches = len(self.valid_dataset) // self.val_batch_size
 
         # To collect statistics
         total_correct = 0
