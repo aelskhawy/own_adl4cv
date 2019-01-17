@@ -1,16 +1,28 @@
+# extra check for the class to remove incorrect class predictions
+# Add mask augmentation along with box augmentation
+# Change the limit of the number of points in the mask point cloud from 10 to 50
+
 
 # reads the pickle files for predicted masks and labels
-# each true box can have multiple predictions
+# each true box can either have one mask or no masks at all
+
+
 
 from __future__ import print_function
 
 import os
 import sys
 import numpy as np
+from scipy.ndimage.interpolation import shift
 import cv2
 from PIL import Image
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-ROOT_DIR = os.path.dirname(BASE_DIR)
+
+MASK_PICKLES_PATH = '/home/os/Desktop/adl4cv/maskrcnn_benchmark_facebook/maskrcnn-benchmark/KITTI_predictions_true_box_iou_cycfix/mask_arrays'
+#CALIB_DATA_PATH = '/home/os/Desktop/adl4cv/frustum-pointnets/dataset/KITTI/object/training/calib'
+#BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+#BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+#ROOT_DIR = os.path.dirname(BASE_DIR)
+ROOT_DIR = '/home/os/Desktop/adl4cv/frustum-pointnets/'
 #print(BASE_DIR, ROOT_DIR)
 # sys.path.append(BASE_DIR)
 # sys.path.append(os.path.join(ROOT_DIR, 'mayavi'))
@@ -146,50 +158,47 @@ def random_shift_box2d(box2d, shift_ratio=0.1):
     w2 = w*(1+np.random.random()*2*r-r) # 0.9 to 1.1
     return np.array([cx2-w2/2.0, cy2-h2/2.0, cx2+w2/2.0, cy2+h2/2.0])
 
+def get_box_from_mask(mask):
+    mask_inds = np.where(mask > 0)
+    return np.min(mask_inds[1]), np.max(mask_inds[1]), np.min(mask_inds[0]), np.max(mask_inds[0])
 
-def segmentation_mask_selection(objects = None, img_index=None):
-    ''' Reads the mask file and take a decision what to select and what to
-        ignore from the file
-    '''
-    if img_index == None:
-        raise AssertionError("{Please provide image index")
+def get_mask_inds(mask):
+    mask_inds = np.where(mask > 0)
+    mean_x, mean_y = np.mean(mask_inds[1]), np.mean(mask_inds[0])
+    return list(zip(mask_inds[1], mask_inds[0])), mean_x, mean_y
 
-    type_dict = {'van': 'car', 'truck':'car', 'person':'pedestrian'}
-    mask_path = os.path.join(ROOT_DIR, 'dataset/KITTI/object/training/masks/mask_arrays/masks_' + str(img_index).zfill(6))
-    with open(mask_path, 'rb') as f:
-        predicted_masks = pickle.load(f)
-        predicted_labels = pickle.load(f)
-        #predicted_boxes_selected = pickle.load(f)
-        #confidence_scores_selected = pickle.load(f)
-    mask_list = []
-    for obj_idx in range(len(objects)):
-        # k x img_w x img_h
-        obj_masks = predicted_masks[obj_idx]
-        obj_labels = predicted_labels[obj_idx]
+def random_shift_mask(mask, shift_ratio=0.1):
+    xmin, xmax, ymin, ymax = get_box_from_mask(mask)
+    hor_shift = (xmax - xmin) * shift_ratio * np.random.random()
+    ver_shift = (ymax - ymin) * shift_ratio * np.random.random()
 
-        #map object names to the classes we have
-        obj_labels = [type_dict[i.lower()] if i.lower() in type_dict.keys() else i.lower() for i in obj_labels]
-        true_obj_class = (objects[obj_idx].type).lower()
+    xp = shift(mask, (ver_shift, hor_shift), mode='constant')
+    xn = shift(mask, (-ver_shift, -hor_shift), mode='constant')
+    yp = shift(mask, (-ver_shift, hor_shift), mode='constant')
+    yn = shift(mask, (ver_shift, -hor_shift), mode='constant')
 
-        if (true_obj_class == 'cyclist') or (len(obj_labels) == 0) or (true_obj_class not in obj_labels):
-            #if cyclist or no mask for the object, or all masks are wrong classes, then append empty array
-            mask_list.append(np.asarray([]))
-        elif (len(obj_labels) == 1)  and (true_obj_class == obj_labels[0]):
-            # one mask and has the correct class
-            mask_list.append(obj_masks[0])
-        elif (len(obj_labels) > 1 ) and (obj_labels.count(true_obj_class) == 1):
-            # more than one mask, but only one mask has the correct class
-            mask_list.append(obj_masks[obj_labels.index(true_obj_class)])
-        else:
-            # more than one mask, more than one true class, so we choose the bigger mask
-            mask_sum = np.sum(obj_masks, axis=(1,2)) # shape: len(obj_masks)
+    x = xp + xn + mask + yn + yp
 
-            #print("mask sum",mask_sum)
-            #print("argmax",np.argmax(mask_sum))
-            mask_list.append(obj_masks[np.argmax(mask_sum)])
+    return np.where(x >= 1, 1, 0)
 
+def get_pc_mask_inds (mask,pc_image_coord,img_fov_inds):
+    xmin, xmax, ymin, ymax = get_box_from_mask(mask)
+    box_fov_inds_mask = (pc_image_coord[:, 0] < xmax) & \
+                        (pc_image_coord[:, 0] >= xmin) & \
+                        (pc_image_coord[:, 1] < ymax) & \
+                        (pc_image_coord[:, 1] >= ymin)
+    box_fov_inds_mask = box_fov_inds_mask & img_fov_inds
 
-    return mask_list
+    box2d_center = np.array([(xmin + xmax) / 2.0, (ymin + ymax) / 2.0])
+
+    # we will subset from pc_image_coor[box_fov_inds] to save the complexity of searching the whole pc
+    tmp = pc_image_coord[box_fov_inds_mask]
+    tmp[:, 0] = np.where(tmp[:, 0] < box2d_center[0], np.floor(tmp[:, 0]), np.ceil(tmp[:, 0]))
+    tmp[:, 1] = np.where(tmp[:, 1] < box2d_center[1], np.floor(tmp[:, 1]), np.ceil(tmp[:, 1]))
+    tmp = np.asarray(tmp, dtype=np.int64)
+    inds_mask2d, mean_x, mean_y = get_mask_inds(mask)
+    return np.array([tuple(coord) in inds_mask2d for coord in tmp]), box_fov_inds_mask, mean_x, mean_y
+
 
 
 def extract_frustum_data(idx_filename, split, output_filename, viz=False,
@@ -231,6 +240,9 @@ def extract_frustum_data(idx_filename, split, output_filename, viz=False,
     obj_box_count = 0
     obj_mask_count = 0
 
+    obj_num = 0
+    ign_obj = 0
+
     for data_idx in data_idx_list:
         if data_idx % 500 in range(1,10):
             print('------------- ', data_idx)
@@ -246,69 +258,55 @@ def extract_frustum_data(idx_filename, split, output_filename, viz=False,
         _, pc_image_coord, img_fov_inds = get_lidar_in_image_fov(pc_velo[:,0:3],
             calib, 0, 0, img_width, img_height, True)
 
-        #we need to read the list of masks given the image index
-        #mask_path = os.path.join(ROOT_DIR,'dataset/KITTI/object/training/masks/mask_arrays/masks_' + str(data_idx).zfill(6))
-        mask_list = segmentation_mask_selection(objects, img_index=data_idx )
+        mask_path = os.path.join(MASK_PICKLES_PATH, 'masks_' + str(data_idx).zfill(6))
+        with open(mask_path, 'rb') as f:
+            mask_list = pickle.load(f)
+            predicted_labels = pickle.load(f)
+
+        type_dict = {'van': 'car', 'truck': 'car', 'person': 'pedestrian'}
+        predicted_labels = [type_dict[i] if i in type_dict.keys() else i for i in predicted_labels]
+        predicted_labels = [i.lower() for i in predicted_labels]
+
         assert len(mask_list) == len(objects)
+        assert len(predicted_labels) == len(objects)
 
         for obj_idx in range(len(objects)):
-            if objects[obj_idx].type not in type_whitelist :continue
+            if objects[obj_idx].type not in type_whitelist:
+                continue
 
             # 2D BOX: Get pts rect backprojected
             # mask 2d is a list of arrays that contains points the belongs to the mask
             mask2d = mask_list[obj_idx]
-
-            #mask2d = objects[obj_idx].mask2d
-            inds_mask2d = np.where(mask2d > 0)
-
-            #size = 0 means mask is empty
-            if inds_mask2d[0].size ==0:
-                    mean_x, mean_y = 0, 0
-            else:
-                mean_x, mean_y = np.mean(inds_mask2d[1]), np.mean(inds_mask2d[0]) # check the order of array x then y or vice versa
-                # a list of tuples for the indices in the mask
-                inds_mask2d = list(zip(inds_mask2d[1], inds_mask2d[0]))
-                #if len(inds_mask2d) == 10:
-
-                box2d = objects[obj_idx].box2d
-
-                # True box points to get the box_fov_inds and use it for the mask
-                xmin, ymin, xmax, ymax = box2d
-                box_fov_inds_mask = (pc_image_coord[:, 0] < xmax) & \
-                               (pc_image_coord[:, 0] >= xmin) & \
-                               (pc_image_coord[:, 1] < ymax) & \
-                               (pc_image_coord[:, 1] >= ymin)
-                box_fov_inds_mask = box_fov_inds_mask & img_fov_inds
-
-                xmin, ymin, xmax, ymax = box2d
-                box2d_center = np.array([(xmin + xmax) / 2.0, (ymin + ymax) / 2.0])
-                # we will subset from pc_image_coor[box_fov_inds] to save the complexity of searching the whole pc
-                tmp = pc_image_coord[box_fov_inds_mask]
-                #print(tmp.shape)
-                tmp[:, 0] = np.where(tmp[:, 0] < box2d_center[0], np.floor(tmp[:, 0]), np.ceil(tmp[:, 0]))
-                tmp[:, 1] = np.where(tmp[:, 1] < box2d_center[1], np.floor(tmp[:, 1]), np.ceil(tmp[:, 1]))
-                tmp = np.asarray(tmp, dtype=np.int64)
-                mask_fov_inds = np.array([tuple(coord) in inds_mask2d for coord in tmp])
+            box2d = objects[obj_idx].box2d
 
             for _ in range(augmentX):
 
                 # Augment data by box2d perturbation
                 if perturb_box2d:
                     xmin, ymin, xmax, ymax = random_shift_box2d(box2d)
-                    #print(box2d)
-                    #print(xmin, ymin, xmax, ymax)
                 else:
                     xmin, ymin, xmax, ymax = box2d
 
-                box_fov_inds = (pc_image_coord[:,0]<xmax) & \
-                    (pc_image_coord[:,0]>=xmin) & \
-                    (pc_image_coord[:,1]<ymax) & \
-                    (pc_image_coord[:,1]>=ymin)
-                box_fov_inds = box_fov_inds & img_fov_inds
-                #print("box inds ",box_fov_inds.shape)
-                # if mask points are sparse, revert back to the box
-                if  (len(inds_mask2d[0]) ==0) or (np.sum(mask_fov_inds) < 10):
-                    box_mask_flag = False
+                if predicted_labels[obj_idx] == objects[obj_idx].type.lower():
+                    if perturb_box2d:
+                        mask = random_shift_mask(mask2d)
+                        mask_fov_inds, box_fov_inds_mask, mean_x, mean_y  = \
+                            get_pc_mask_inds(mask, pc_image_coord, img_fov_inds)
+                    else:
+                        mask = [point for point in mask2d]
+                        mask_fov_inds, box_fov_inds_mask, mean_x, mean_y = \
+                            get_pc_mask_inds(mask, pc_image_coord, img_fov_inds)
+
+                # the first condition is a more general one from this: mask2d.shape[0] == 0
+                if (predicted_labels[obj_idx] != objects[obj_idx].type.lower()) or (np.sum(mask_fov_inds) < 50):
+                    obj_box_count += 1
+
+                    box_fov_inds = (pc_image_coord[:, 0] < xmax) & \
+                                   (pc_image_coord[:, 0] >= xmin) & \
+                                   (pc_image_coord[:, 1] < ymax) & \
+                                   (pc_image_coord[:, 1] >= ymin)
+                    box_fov_inds = box_fov_inds & img_fov_inds
+
                     # pc in box fov
                     pc_in_fov = pc_rect[box_fov_inds, :]
                     #Get frustum angle (according to center pixel in 2D BOX)
@@ -317,18 +315,14 @@ def extract_frustum_data(idx_filename, split, output_filename, viz=False,
                     uvdepth[0,0:2] = box2d_center
                     uvdepth[0,2] = 20 # some random depth
                     box2d_center_rect = calib.project_image_to_rect(uvdepth)
-                    frustum_angle = -1 * np.arctan2(box2d_center_rect[0,2],
-                        box2d_center_rect[0,0])
-
-                    obj_box_count += 1
+                    frustum_angle = -1 * np.arctan2(box2d_center_rect[0,2], box2d_center_rect[0,0])
 
                 else:
-                    box_mask_flag = True
+                    obj_mask_count += 1
+
                     # pc in mask fov
                     # we will subset from the pc part inside the box, not the whole pc_rect
                     pc_in_box_fov = pc_rect[box_fov_inds_mask,:]
-                    #print("pc in box",pc_in_box_fov.shape)
-                    #print("sum",np.sum(box_fov_inds))
                     pc_in_fov = pc_in_box_fov[mask_fov_inds, :]
 
                     # frustum angel from mask not from the 2d box
@@ -338,9 +332,8 @@ def extract_frustum_data(idx_filename, split, output_filename, viz=False,
                     uvdepth[0, 2] = 20  # some random depth
                     mask2d_center_rect = calib.project_image_to_rect(uvdepth)
 
-                    frustum_angle = -1 * np.arctan2(mask2d_center_rect[0,2],
-                        mask2d_center_rect[0,0])
-                    obj_mask_count +=1
+                    frustum_angle = -1 * np.arctan2(mask2d_center_rect[0,2], mask2d_center_rect[0,0])
+
 
 
                 # 3D BOX: Get pts velo in 3d box
@@ -355,7 +348,8 @@ def extract_frustum_data(idx_filename, split, output_filename, viz=False,
                 box3d_size = np.array([obj.l, obj.w, obj.h])
 
                 # Reject too far away object or object without points
-                if ymax-ymin<25 or np.sum(label)==0:
+                if box2d[3] - box2d[1] < 25 or np.sum(label)==0:
+                    ign_obj += 1
                     continue
 
                 id_list.append(data_idx)
@@ -370,15 +364,16 @@ def extract_frustum_data(idx_filename, split, output_filename, viz=False,
     
                 # collect statistics
                 pos_cnt += np.sum(label)
-                all_cnt += pc_in_box_fov.shape[0]
-                if box_mask_flag:
-                    # We used the mask instead of box, hence we need no augmentation
-                    continue
+                all_cnt += pc_in_fov.shape[0]
+                obj_num += 1
+
         
     print("Obj_box_count {} ".format(obj_box_count/augmentX))
-    print("Obj_mask_count {} ".format(obj_mask_count ))
-    print('Average pos ratio: %f' % (pos_cnt/float(all_cnt)))
-    print('Average npoints: %f' % (float(all_cnt)/len(id_list)))
+    print("Obj_mask_count {} ".format(obj_mask_count/augmentX ))
+    print('label_count: {}'.format(pos_cnt))
+    print('input_count: {}'.format(all_cnt))
+    print('object_num: {}'.format(obj_num))
+    print('ignore_num: {}'.format(ign_obj))
     
     with open(output_filename,'wb') as fp:
         pickle.dump(id_list, fp)
@@ -611,12 +606,14 @@ if __name__=='__main__':
         output_prefix = 'frustum_carpedcyc_'
 
     if args.gen_train:
+
         extract_frustum_data(\
             os.path.join(BASE_DIR, 'image_sets/train.txt'),
             'training',
             os.path.join(BASE_DIR, output_prefix+'train.pickle'), 
             viz=False, perturb_box2d=True, augmentX=5,
             type_whitelist=type_whitelist)
+
 
     if args.gen_val:
         extract_frustum_data(\

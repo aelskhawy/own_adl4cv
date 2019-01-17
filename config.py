@@ -4,32 +4,32 @@ from torch.optim import SGD, Adam
 class Config:
     NUM_HEADING_BIN = 12
     NUM_SIZE_CLUSTER = 8
-    NUM_POINT = 1024
+    NUM_POINT = 700
     NUM_CHANNELS = 4
-    NUM_OBJECT_POINT = 512
+    NUM_OBJECT_POINT = 350
     MOMENTUM = 0.9
-    DECAY_STEP = 800000
-    #DECAY_RATE = 0.7
+    DECAY_STEP = 300000
+    DECAY_RATE = 0.5
 
     BN_INIT_DECAY = 0.5
     BN_DECAY_RATE = 0.5
     BN_DECAY_STEP = float(DECAY_STEP)
     BN_DECAY_CLIP = 0.99
 
-    BATCH_SIZE = 64
+    BATCH_SIZE = 128
     NUM_CLASSES = 2  # segmentation has 2 classes
 
     train_control = {
         'optimizer': Adam,  # Adam, SGD
         'optimizer_params': {'lr': 1e-3},
-        'decay_steps': 800000,
-        'decay_rate': 0.5,
-        'lr_clip': 0.00001,
-        'init_bn_decay': 0.5,
-        'bn_decay_rate': 0.5,
-        'bn_decay_step': 800000.0,
-        'bn_decay_clip': 0.99,
-        'lr_scheduler_type': 'step',  # 'exp', 'step', 'plateau', 'none'
+        'decay_steps': DECAY_STEP,
+        'decay_rate': DECAY_RATE,
+        'lr_clip': 5e-6,
+        'init_bn_decay': BN_INIT_DECAY,
+        'bn_decay_rate': BN_DECAY_RATE,
+        'bn_decay_step': BN_DECAY_STEP,
+        'bn_decay_clip': BN_DECAY_CLIP,
+        'lr_scheduler_type': 'exp',
 
         'step_scheduler_args': {
             'gamma': 0.7,  # factor to decay learing rate (new_lr = gamma * lr)
