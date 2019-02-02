@@ -1,4 +1,3 @@
-import torch
 import torch.nn as nn
 from Segmentation3DModel import Segmentation3DModel
 from CenterRegressionModel import CenterRegressionModel
@@ -37,32 +36,24 @@ class Frustum3DModel(nn.Module):
     def forward(self, input_point_cloud, one_hot_vector):
         self.segmentation_logits = self.segmentation_model(input_point_cloud, one_hot_vector)
         self.endpoints['mask_logits'] = self.segmentation_logits
-        #print("Endpoints after seg model: ", type(self.endpoints))
 
         self.object_point_cloud, self.mask_mean_xyz, self.endpoints = point_cloud_masking(input_point_cloud,
                                                                                           self.segmentation_logits,
                                                                                           self.endpoints,
                                                                                           self.m_points)
 
-        # to check if we need to change to variable here
-        #self.object_point_cloud = torch.autograd.Variable(self.object_point_cloud)
 
-        #print('input to center net:', self.object_point_cloud.size())
         self.predicted_center_delta = self.center_regression_model(self.object_point_cloud, one_hot_vector)
 
-        #print("Endpoints after center model: ", type(self.endpoints))
 
         self.endpoints['stage1_center'] = self.predicted_center_delta + self.mask_mean_xyz
 
         self.object_point_cloud[:, :, 0:3] =self.object_point_cloud[:, :, 0:3] - self.predicted_center_delta.unsqueeze(1)
 
         self.boxmodel_output = self.regression_box3d_model(self.object_point_cloud, one_hot_vector)
-        #print("Endpoints after box model: ", type(self.endpoints))
 
         self.endpoints = parse_3dregression_model_output(self.boxmodel_output, self.endpoints, self.num_heading_bin,
                                                          self.num_size_cluster, self.device)
-
-        #print("Endpoints after parsing: ", type(self.endpoints))
 
         self.endpoints['center'] = self.endpoints['center_boxnet'] + self.endpoints['stage1_center']
 

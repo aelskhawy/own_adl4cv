@@ -4,11 +4,11 @@ from torch.optim import SGD, Adam
 class Config:
     NUM_HEADING_BIN = 12
     NUM_SIZE_CLUSTER = 8
-    NUM_POINT = 700
+    NUM_POINT = 1024
     NUM_CHANNELS = 4
-    NUM_OBJECT_POINT = 350
+    NUM_OBJECT_POINT = 512
     MOMENTUM = 0.9
-    DECAY_STEP = 300000
+    DECAY_STEP = 800000
     DECAY_RATE = 0.5
 
     BN_INIT_DECAY = 0.5
@@ -16,7 +16,7 @@ class Config:
     BN_DECAY_STEP = float(DECAY_STEP)
     BN_DECAY_CLIP = 0.99
 
-    BATCH_SIZE = 128
+    BATCH_SIZE = 64
     NUM_CLASSES = 2  # segmentation has 2 classes
 
     train_control = {
