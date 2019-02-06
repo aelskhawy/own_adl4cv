@@ -5,14 +5,14 @@ from config import Config
 # ------------------------------------------------
 
 TRAIN_DATASET = FrustumDataset(npoints=Config.NUM_POINT, split='train', rotate_to_center=True,
-                               random_flip=True, random_shift=True, one_hot=True)
+                               random_flip=True, random_shift=True, one_hot=True, resample_method=Config.resampling_method)
 TEST_DATASET = FrustumDataset(npoints=Config.NUM_POINT, split='val', rotate_to_center=True,
-                              one_hot=True)
+                              one_hot=True, resample_method=Config.resampling_method)
 model = Frustum3DModel(n_points=Config.NUM_POINT,
                        m_points=Config.NUM_OBJECT_POINT,
                        n_channels=4,
-                       n_classes=3)
+                       n_classes=3, resample_method=Config.resampling_method)
 
 trainer = ModelTrainer(model, TRAIN_DATASET, TEST_DATASET, Config, log_interval=10)
 
-trainer.train(150)
+trainer.train(100)
