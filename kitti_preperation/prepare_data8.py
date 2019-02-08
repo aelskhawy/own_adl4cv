@@ -72,10 +72,12 @@ def random_shift_box2d(box2d, shift_ratio=0.1):
     return np.array([cx2-w2/2.0, cy2-h2/2.0, cx2+w2/2.0, cy2+h2/2.0])
 
 def get_box_from_mask(mask):
+    print('points in mask', np.sum(mask))
     mask_inds = np.where(mask > 0)
     return np.min(mask_inds[1]), np.max(mask_inds[1]), np.min(mask_inds[0]), np.max(mask_inds[0])
 
 def get_mask_inds(mask):
+    print('points in mask', np.sum(mask))
     mask_inds = np.where(mask > 0)
     mean_x, mean_y = np.mean(mask_inds[1]), np.mean(mask_inds[0])
     return list(zip(mask_inds[1], mask_inds[0])), mean_x, mean_y
@@ -157,8 +159,8 @@ def extract_frustum_data(idx_filename, split, output_filename, viz=False,
     ign_obj = 0
 
     for data_idx in data_idx_list:
-        if data_idx % 250 in range(1,10):
-            print('------------- ', data_idx)
+        #if data_idx % 250 in range(1,10):
+        print('------------- ', data_idx)
         calib = dataset.get_calibration(data_idx) # 3 by 4 matrix
         objects = dataset.get_label_objects(data_idx)
         pc_velo = dataset.get_lidar(data_idx)
@@ -194,18 +196,18 @@ def extract_frustum_data(idx_filename, split, output_filename, viz=False,
                 else:
                     xmin, ymin, xmax, ymax = box2d
 
-                if mask2d.shape[0] != 0:
+                if mask2d.shape[0] != 0 and np.sum(mask2d) != 0:
                     if perturb_box2d:
                         mask = random_shift_mask(mask2d)
                         mask_fov_inds, box_fov_inds_mask, mean_x, mean_y  = \
                             get_pc_mask_inds(mask, pc_image_coord, img_fov_inds)
                     else:
-                        mask = np.array([point for point in mask2d])
+                        #mask = np.array([point for point in mask2d])
                         mask_fov_inds, box_fov_inds_mask, mean_x, mean_y = \
-                            get_pc_mask_inds(mask, pc_image_coord, img_fov_inds)
+                            get_pc_mask_inds(mask2d, pc_image_coord, img_fov_inds)
 
                 # No mask or a sparse mask point cloud
-                if mask2d.shape[0] == 0 or (np.sum(mask_fov_inds) < 25):
+                if mask2d.shape[0] == 0 or (np.sum(mask2d) == 0) or (np.sum(mask_fov_inds) < 25):
                     obj_box_count += 1
 
                     box_fov_inds = (pc_image_coord[:, 0] < xmax) & \
