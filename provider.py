@@ -98,7 +98,8 @@ class FrustumDataset(object):
 
     def __init__(self, npoints, split,
                  random_flip=False, random_shift=False, rotate_to_center=False,
-                 overwritten_data_path=None, from_rgb_detection=False, one_hot=False):
+                 overwritten_data_path=None, from_rgb_detection=False, one_hot=False,
+                 resample_method='random'):
         '''
         Input:
             npoints: int scalar, number of points for frustum point cloud.
@@ -114,6 +115,7 @@ class FrustumDataset(object):
                 groundtruth, just return data elements.
             one_hot: bool, if True, return one hot vector
         '''
+        self.resample_method = resample_method
         self.npoints = npoints
         self.random_flip = random_flip
         self.random_shift = random_shift
@@ -168,7 +170,34 @@ class FrustumDataset(object):
         else:
             point_set = self.input_list[index]
         # Resample
-        choice = np.random.choice(point_set.shape[0], self.npoints, replace=True)
+
+        #----
+        def resample(point_set_size, required_points):
+            choice = []
+            if self.resample_method == 'random':
+                if point_set_size > required_points:
+                    choice = np.random.choice(point_set_size,
+                                              required_points, replace=False)
+                else:
+                    choice = np.random.choice(point_set_size,
+                                              required_points - point_set_size, replace=True)
+                    choice = np.concatenate((np.arange(point_set_size), choice))
+            elif self.resample_method == 'repeat':
+                n_times = required_points // point_set_size
+                remaining = required_points - point_set_size * n_times
+                if n_times == 0:
+                    choice = np.random.choice(point_set_size,
+                                              required_points, replace=False)
+                else:
+                    for i in range(n_times):
+                        choice = np.concatenate((np.arange(point_set_size), choice))
+                    choice = np.concatenate((choice, np.random.choice(point_set_size,
+                                                                      remaining, replace=False)))
+            return np.array(choice, dtype=np.int8)
+        #----
+
+        #choice = np.random.choice(point_set.shape[0], self.npoints, replace=True)
+        choice = resample(point_set.shape[0], self.npoints)
         point_set = point_set[choice, :]
 
         if self.from_rgb_detection:

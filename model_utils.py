@@ -55,20 +55,37 @@ def get_heading_loss(heading_scores, heading_class_label):
     return loss
 
 
-def gather_object_pointcloud(point_cloud, mask, m_points, device='cuda'):
+def gather_object_pointcloud(point_cloud, mask, m_points, device='cuda', resample_method='random'):
+    def resample(pos_indices, m_points):
+        choice = []
+        if resample_method == 'random':
+            if len(pos_indices) > m_points:
+                choice = np.random.choice(len(pos_indices),
+                                          m_points, replace=False)
+            else:
+                choice = np.random.choice(len(pos_indices),
+                                          m_points - len(pos_indices), replace=True)
+                choice = np.concatenate((np.arange(len(pos_indices)), choice))
+        elif resample_method == 'repeat':
+            n_times = m_points // len(pos_indices)
+            remaining = m_points - len(pos_indices) * n_times
+            if n_times == 0:
+                choice = np.random.choice(len(pos_indices),
+                                          m_points, replace=False)
+            else:
+                for i in range(n_times):
+                    choice = np.concatenate((np.arange(len(pos_indices)), choice))
+                choice = np.concatenate((choice, np.random.choice(len(pos_indices),
+                                                                  remaining, replace=False)))
+        return np.array(choice, np.int8)
+
     def mask_to_indicies(mask, batch_size, n_channels):
         indices = torch.zeros((batch_size, m_points, n_channels), dtype=torch.long)
         for i in range(batch_size):
             pos_indices = np.where(mask[i, :] > 0.5)[0]
             # skip cases when pos_indices is empty
             if len(pos_indices) > 0:
-                if len(pos_indices) > m_points:
-                    choice = np.random.choice(len(pos_indices),
-                                              m_points, replace=False)
-                else:
-                    choice = np.random.choice(len(pos_indices),
-                                              m_points - len(pos_indices), replace=True)
-                    choice = np.concatenate((np.arange(len(pos_indices)), choice))
+                choice = resample(pos_indices, m_points)
                 np.random.shuffle(choice)
                 indices[i, :] = torch.from_numpy(pos_indices[choice]).unsqueeze(1).repeat(1, 4)
         return indices.to(device)
@@ -93,7 +110,8 @@ def gather_object_pointcloud(point_cloud, mask, m_points, device='cuda'):
     return object_point_cloud.to(device), indices
 
 
-def point_cloud_masking(point_cloud, segmentation_logits, endpoints, NUM_OBJECT_POINT=512, device='cuda'):
+def point_cloud_masking(point_cloud, segmentation_logits, endpoints, NUM_OBJECT_POINT=512, device='cuda',
+                        resample_method='random'):
     #print("inside point cloud masking")
 
     #print("Shape of point cloud at start: ", point_cloud.size())
@@ -127,7 +145,7 @@ def point_cloud_masking(point_cloud, segmentation_logits, endpoints, NUM_OBJECT_
 
     num_channels = point_cloud_stage1.size()[2]
 
-    object_point_cloud, _ = gather_object_pointcloud(point_cloud_stage1, mask, NUM_OBJECT_POINT, device)
+    object_point_cloud, _ = gather_object_pointcloud(point_cloud_stage1, mask, NUM_OBJECT_POINT, device, resample_method)
     object_point_cloud = object_point_cloud.view(batch_size, NUM_OBJECT_POINT, num_channels)
 
     return object_point_cloud, torch.squeeze(mask_xyz_mean, dim=1), endpoints

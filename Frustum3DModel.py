@@ -8,13 +8,14 @@ from torch.nn.modules.batchnorm import BatchNorm1d, BatchNorm2d
 
 class Frustum3DModel(nn.Module):
     def __init__(self, n_points, m_points, n_channels, n_classes, device='cuda', batch_norm_decay=0.9,
-                 num_heading_bin=12, num_size_cluster=8):
+                 num_heading_bin=12, num_size_cluster=8, resample_method='random'):
         super(Frustum3DModel, self).__init__()
 
         self.device = device
         self.m_points = m_points
         self.mask_mean_xyz = None
 
+        self.resample_method = resample_method
 
         self.endpoints = {}
 
@@ -34,17 +35,18 @@ class Frustum3DModel(nn.Module):
 
 
     def forward(self, input_point_cloud, one_hot_vector):
+
         self.segmentation_logits = self.segmentation_model(input_point_cloud, one_hot_vector)
         self.endpoints['mask_logits'] = self.segmentation_logits
 
         self.object_point_cloud, self.mask_mean_xyz, self.endpoints = point_cloud_masking(input_point_cloud,
                                                                                           self.segmentation_logits,
                                                                                           self.endpoints,
-                                                                                          self.m_points)
+                                                                                          self.m_points,
+                                                                                          resample_method=self.resample_method)
 
 
         self.predicted_center_delta = self.center_regression_model(self.object_point_cloud, one_hot_vector)
-
 
         self.endpoints['stage1_center'] = self.predicted_center_delta + self.mask_mean_xyz
 

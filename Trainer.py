@@ -1,7 +1,6 @@
 import numpy as np
 from Frustum3DModel import Frustum3DModel
 from provider import FrustumDataset, compute_box3d_iou
-from Frustum3DLoss import Frustum3DLoss
 from torch.optim.lr_scheduler import StepLR, ExponentialLR, ReduceLROnPlateau
 from model_utils import save_checkpoint, load_checkpoint
 from train_utils import get_batch
@@ -15,7 +14,6 @@ class ModelTrainer:
                  valid_dataset: FrustumDataset,
                  config,
                  device='cuda',
-                 loss_func=Frustum3DLoss,
                  train_subset=None,
                  log_interval=10):
         self.model = model
@@ -27,8 +25,10 @@ class ModelTrainer:
         self.val_batch_size = config.BATCH_SIZE
 
         self.device = device
-        self.loss_func = loss_func
-        self.loss = self.loss_func(self.config.NUM_HEADING_BIN, self.config.NUM_SIZE_CLUSTER, self.model.endpoints)
+        self.loss_func = config.loss_function
+        self.loss = self.loss_func(self.config.NUM_HEADING_BIN, self.config.NUM_SIZE_CLUSTER, self.model.endpoints,
+                                   self.config)
+
         self.log_interval = log_interval
         self.train_subset = train_subset
 
@@ -43,6 +43,7 @@ class ModelTrainer:
         self.scheduler = None
         self._init_optimizer(config.train_control)
         self.epoch = 0
+        self.n_epochs = 0
         self.global_step = 0
         self.train_control = config.train_control
         self.current_lr = config.train_control['optimizer_params']['lr']
@@ -55,36 +56,50 @@ class ModelTrainer:
 
         self.lr_decay_cycle = 1
         self.bn_decay_cycle = 1
+        self.logger_name = self.__class__.__name__
+        if not hasattr(self, 'columns'):
+            self.columns = '''
+                    epoch | batches_processed | mean_loss | segmentation_accuracy | box_IOU_ground | box_IOU_3d | box_accuracy | seg_loss | stage1_center_loss | center_loss | heading_class_loss | heading_residual_normalized_loss | size_class_loss | size_residuals_normalized_loss | corner_loss | total_loss | lr | bn_decay | flag
+                    '''
+        self._init_logger()
 
-        handlers = [logging.FileHandler(
+
+    def _init_logger(self):
+
+        self.df_logger = logging.getLogger(self.logger_name)
+        self.df_logger.setLevel(logging.INFO)
+        handler = logging.FileHandler(
             datetime.now().strftime(
-                f"./logs/%Y-%m-%d_%H-%M-%S-.log")),
-            logging.StreamHandler()]
-        logging.basicConfig(format='%(asctime)s - %(message)s',
-                            level=logging.INFO, handlers=handlers)
+                f"./logs/%Y-%m-%d_%H-%M-%S-{self.__class__.__name__}.log"), 'w+')
 
-        logging.info('Logging initialized')
+        self.df_logger.addHandler(handler)
+        self.df_logger.addHandler(logging.StreamHandler())
 
-        logging.info('''
-        timestamp | epoch | batches_processed | mean_loss | segmentation_accuracy | box_IOU_ground | box_IOU_3d | box_accuracy | seg_loss | stage1_center_loss | center_loss | heading_class_loss | heading_residual_normalized_loss | size_class_loss | size_residuals_normalized_loss | corner_loss | total_loss | lr | bn_decay | flag
-        ''')
+        self.df_logger.info('Logging initialized')
+        self.df_logger.info(self.columns)
 
     def _init_optimizer(self, train_control):
 
-        self.optimizer = train_control['optimizer'](filter(lambda p: p.requires_grad, self.model.parameters()),
+        self.optimizer = train_control['optimizer'](self.get_trainable_parameters(),
                                                     **train_control['optimizer_params'])
 
-        if train_control['lr_scheduler_type'] == 'step':
-            self.scheduler = StepLR(self.optimizer, **train_control['step_scheduler_args'])
-        elif train_control['lr_scheduler_type'] == 'exp':
-            self.scheduler = ExponentialLR(self.optimizer, **train_control['exp_scheduler_args'])
-        elif train_control['lr_scheduler_type'] == 'plateau':
-            self.scheduler = ReduceLROnPlateau(self.optimizer, **train_control['plateau_scheduler_args'])
-        else:
-            self.scheduler = StepLR(self.optimizer, step_size=100, gamma=1)
+        # if train_control['lr_scheduler_type'] == 'step':
+        #     self.scheduler = StepLR(self.optimizer, **train_control['step_scheduler_args'])
+        # elif train_control['lr_scheduler_type'] == 'exp':
+        #     self.scheduler = ExponentialLR(self.optimizer, **train_control['exp_scheduler_args'])
+        # elif train_control['lr_scheduler_type'] == 'plateau':
+        #     self.scheduler = ReduceLROnPlateau(self.optimizer, **train_control['plateau_scheduler_args'])
+        # else:
+        #     self.scheduler = StepLR(self.optimizer, step_size=100, gamma=1)
 
     def _reset_histories(self):
         return True
+
+    def get_trainable_parameters(self):
+        model_params = list(filter(lambda p: p.requires_grad, self.model.parameters()))
+        loss_params = self.loss.get_trainable_weights() if hasattr(self.loss, 'get_trainable_weights') else []
+        return model_params + loss_params
+
 
     def train_epoch(self):
         # this is the current iteration inside the epoch
@@ -258,7 +273,7 @@ class ModelTrainer:
         log_float = lambda x, y=True: '%f' % x + ' | ' if y else '%f' % x
         log_str = lambda  x, y=True: x + ' | ' if y else x
 
-        log_string = ' | '
+        log_string = ''
         log_string += log_int(self.epoch)
         log_string += log_int((batch_idx + 1))
         log_string += log_float(mean_loss)
@@ -279,18 +294,27 @@ class ModelTrainer:
         log_string += log_float(self.bn_decay)
         log_string += log_str(flag, False)
 
-        logging.info(log_string + '\n')
+        self.df_logger.info(log_string + '\n')
 
     def train(self, n_epochs):
         self.model.to(self.device)
         self.model.train()
+        self.n_epochs = n_epochs
 
         for epoch in range(n_epochs):
             self.train_epoch()
             self.eval_epoch()
             self.exp_lr_scheduler()
             self.exp_bn_scheduler()
+            if self.config.variable_loss_weights:
+                self.update_losses_weights()
             self.epoch += 1
+
+
+
+
+    def update_losses_weights(self):
+        self.loss.change_loss_components_weights(self.n_epochs)
 
     def resume_training(self, n_epochs, model_path='./models/best_model.pth'):
         self.model, self.optimizer, self.epoch, self.best_val_loss = load_checkpoint(

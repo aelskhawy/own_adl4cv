@@ -12,7 +12,8 @@ import cv2
 from PIL import Image
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 #ROOT_DIR = os.path.dirname(BASE_DIR)
-ROOT_DIR = '/home/os/Desktop/adl4cv/frustum-pointnets/'
+#ROOT_DIR = '/home/os/Desktop/adl4cv/frustum-pointnets/'
+ROOT_DIR = '/media/os/DATA/# Last Semester/ADL4CV/frustum-pointnets'
 #sys.path.append(os.path.join(ROOT_DIR, 'mayavi'))
 import kitti_util2 as utils
 

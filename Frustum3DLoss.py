@@ -3,16 +3,27 @@ import torch.nn as nn
 import torch.nn.functional as F
 from model_utils import convert_to_one_hot, get_mean_size_array, get_box3d_corners, get_box3d_corners_helper
 import numpy as np
-from torch.autograd import Variable
 
 
 class Frustum3DLoss(nn.Module):
-    def __init__(self, num_heading_bin, num_size_cluster, endpoints, device='cuda',
-                 corner_loss_weight=10.0, box_loss_weight=1.0):
+    def __init__(self, num_heading_bin, num_size_cluster, endpoints, config, device='cuda'):
         super(Frustum3DLoss, self).__init__()
         self.device = device
-        self.corner_loss_weight = corner_loss_weight
-        self.box_loss_weight = box_loss_weight
+        self.variable_loss_weights = config.variable_loss_weights
+        if self.variable_loss_weights:
+            self.seg_loss_weight = config.start_seg_loss_weight
+            self.corner_loss_weight = config.start_corner_loss_weight
+            self.box_loss_weight = config.start_box_loss_weight
+
+            self.delta_seg_loss_weight = config.seg_loss_weight - config.start_seg_loss_weight
+            self.delta_corner_loss_weight = config.corner_loss_weight - config.start_corner_loss_weight
+            self.delta_box_loss_weight = config.box_loss_weight - config.start_box_loss_weight
+
+        else:
+            self.seg_loss_weight = config.seg_loss_weight
+            self.corner_loss_weight = config.corner_loss_weight
+            self.box_loss_weight = config.box_loss_weight
+
         self.num_heading_bin = num_heading_bin
         self.num_size_cluster = num_size_cluster
         self.one_hot_hc_label = None
@@ -52,14 +63,30 @@ class Frustum3DLoss(nn.Module):
                                            size_residual_label, endpoints['size_residuals'])
         self.losses['corner_loss'] = corner_loss
 
-        total_loss = seg_loss + self.box_loss_weight * (center_loss +heading_class_loss + size_class_loss +
-                                                        heading_residual_normalized_loss * 20 +
-                                                        size_residuals_normalized_loss * 20 +
-                                                        stage1_center_loss +
-                                                        self.corner_loss_weight * corner_loss)
+        total_loss = self.seg_loss_weight * seg_loss + self.box_loss_weight * (
+                                                                    center_loss +heading_class_loss + size_class_loss +
+                                                                    heading_residual_normalized_loss * 20 +
+                                                                    size_residuals_normalized_loss * 20 +
+                                                                    stage1_center_loss +
+                                                                    self.corner_loss_weight * corner_loss)
         self.losses['total_loss'] = total_loss
 
         return total_loss
+
+    def get_trainable_weights(self):
+        return []
+
+    def change_loss_components_weights(self, n_epochs):
+        step = lambda delta, n: delta/n
+        self.seg_loss_weight += step(self.delta_seg_loss_weight, n_epochs)
+        self.corner_loss_weight += step(self.delta_corner_loss_weight, n_epochs)
+        self.box_loss_weight += step(self.delta_box_loss_weight, n_epochs)
+
+        print("New weight for seg loss: ", self.seg_loss_weight)
+        print("New weight for corner loss: ", self.corner_loss_weight)
+        print("New weight for box loss: ", self.box_loss_weight)
+        return True
+
 
     def huber_loss(self, error, delta):
         abs_error = torch.abs(error)
