@@ -1,2 +1,6 @@
-# own_adl4cv
-our own private repo for adl4cv project
+# 3D Object Detection using Frustum PointNets
+### 3D Object detection using 2D information from images and LiDAR point-clouds on KITTI autonomous driving dataset.
+
+This project is part of the Advanced Deep Learning for Computer Vision class at TUM.
+
+
